@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.venv/
+env/
+.env
+
+# Docker volumes
+neo4j_data/
+mongodb_data/
+redis_data/
+
+# Application snapshots
+snapshots/*.tar.gz
+snapshots/*.json
+
+# FAISS and SQLite local databases
+faiss_index.bin
+pubmed_chunks.db
+
+# Logs
+training_log.json
+request_logs/
+
+# Secrets
+.secrets/
+
+# IDEs
+.vscode/
+.idea/
+.DS_Store

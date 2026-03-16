@@ -1,10 +1,11 @@
-from fastapi import FastAPI, HTTPException, Depends
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 import asyncio
 import os
-from api.schemas import QueryRequest, QueryResponse
+from datetime import datetime
+from api.schemas import QueryRequest, QueryResponse, CoverageReport
 from guardrails.query_classifier import QueryClassifier, QueryCategory
-from guardrails.disclaimer_injector import inject_disclaimer
+from guardrails.disclaimer_injector import DISCLAIMER_TEXT
 
 app = FastAPI(title="DRIPE API", version="1.0.0")
 
@@ -32,32 +33,30 @@ async def run_query(request: QueryRequest):
         
     # 2. Pipeline Execution with Timeout
     try:
-        async with asyncio.timeout(60):
-            # Simulate pipeline logic
-            # Fetch candidates, graph paths, RAG evidence...
-            await asyncio.sleep(1) # Simulated work
-            
-            response_data = {
-                "query_disease": request.disease,
-                "graph_version": "v2026.03.0",
-                "coverage_report": {
-                    "completeness_tier": "MEDIUM",
-                    "gene_association_count": 50,
-                    "protein_interaction_count": 120,
-                    "pubmed_paper_count": 80,
-                    "trial_count": 5,
-                    "sparse_edges": []
-                },
-                "candidates": [],
-                "timeout_flag": False
-            }
-            
-            # 3. Inject Disclaimer
-            response_data = inject_disclaimer(response_data)
-            return response_data
-            
+        response_data = await asyncio.wait_for(simulate_pipeline(request.disease), timeout=60)
+        return response_data
     except asyncio.TimeoutError:
-        return HTTPException(status_code=408, detail="Query timeout. Processing took longer than 60 seconds.")
+        raise HTTPException(status_code=408, detail="Query timeout.")
+
+async def simulate_pipeline(disease: str) -> QueryResponse:
+    """Mock pipeline — returns a valid Pydantic QueryResponse for skeleton testing."""
+    await asyncio.sleep(1)
+    return QueryResponse(
+        query_disease=disease,
+        query_timestamp=datetime.utcnow(),
+        graph_version="v2026.03.0",
+        coverage_report=CoverageReport(
+            completeness_tier="MEDIUM",
+            gene_association_count=50,
+            protein_interaction_count=120,
+            pubmed_paper_count=80,
+            trial_count=5,
+            sparse_edges=[]
+        ),
+        candidates=[],
+        disclaimer=DISCLAIMER_TEXT,
+        timeout_flag=False
+    )
 
 @app.get("/health")
 async def health_check():

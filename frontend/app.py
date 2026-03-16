@@ -2,25 +2,33 @@ import streamlit as st
 import httpx
 import os
 
-API_URL = os.getenv("API_URL", "http://localhost:8000")
+API_URL = os.getenv("API_URL", "http://localhost:8001")
 
 st.set_page_config(page_title="DRIPE - Drug Repurposing Engine", layout="wide")
 
 # Persistent Disclaimer
 st.warning("⚠️ RESEARCH USE ONLY. This system is for research purposes and does not provide medical advice.")
 
-def run_query(disease: str, confidence: float):
+def run_query(disease: str, confidence: float, exploratory: bool):
     try:
         with st.spinner("Analyzing Knowledge Graph and Literature..."):
             response = httpx.post(
-                f"{API_URL}/query", 
-                json={"disease": disease, "min_confidence": confidence},
+                f"{API_URL}/query",
+                json={"disease": disease, "min_confidence": confidence, "include_exploratory": exploratory},
                 timeout=70.0
             )
-            return response.json()
+            if response.status_code == 200:
+                return response.json()
+            elif response.status_code in (400, 403, 408):
+                error_body = response.json()
+                st.error(f"⚠️ {error_body.get('detail', 'Request blocked.')}")
+            else:
+                st.error(f"API Error {response.status_code}: {response.text[:300]}")
+    except httpx.ConnectError:
+        st.error("❌ Cannot connect to API. Is the backend running on port 8001?")
     except Exception as e:
-        st.error(f"Error connecting to API: {e}")
-        return None
+        st.error(f"Error: {e}")
+    return None
 
 def main():
     st.title("🧬 DRIPE: Drug Repurposing Intelligence Engine")
@@ -34,7 +42,7 @@ def main():
         submit = st.button("Generate Hypothesis")
 
     if submit and disease_input:
-        results = run_query(disease_input, min_conf)
+        results = run_query(disease_input, min_conf, exploratory)
         if results:
             if "detail" in results:
                 st.error(results["detail"])

@@ -6,6 +6,7 @@ venv/
 .venv/
 env/
 .env
+dripenv
 
 # Docker volumes
 neo4j_data/

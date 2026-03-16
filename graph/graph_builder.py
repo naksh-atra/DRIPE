@@ -6,10 +6,11 @@ import os
 logger = logging.getLogger(__name__)
 
 class GraphEngine:
-    def __init__(self, uri=None, user=None, password=None):
-        self.uri = uri or os.getenv("NEO4J_URI", "bolt://localhost:7687")
-        self.user = user or "neo4j"
-        self.password = password or os.getenv("NEO4J_PASSWORD", "password")
+    def __init__(self, uri=None, user=None, password=None, database=None):
+        self.uri = uri or os.getenv("NEO4J_URI")
+        self.user = user or os.getenv("NEO4J_USER")
+        self.password = password or os.getenv("NEO4J_PASSWORD")
+        self.database = database or os.getenv("NEO4J_DATABASE")
         self.driver = None
         
         # NetworkX fallback for local/test use
@@ -57,3 +58,8 @@ class GraphEngine:
                target_id=record.target_id, target_type=record.target_type,
                rel_type=record.relationship_type, confidence=record.confidence,
                source_db=record.source_db)
+
+    def get_session(self):
+        if self.driver:
+            return self.driver.session(database=self.database)
+        return None

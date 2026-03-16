@@ -1,0 +1,23 @@
+[
+    {
+        "source_disease": "Alzheimer's Disease",
+        "original_drug": "None",
+        "repurposed_drug": "Sildenafil",
+        "drugbank_id": "DB00150",
+        "pmid_evidence": ["34873336"]
+    },
+    {
+        "source_disease": "Multiple Myeloma",
+        "original_drug": "None",
+        "repurposed_drug": "Thalidomide",
+        "drugbank_id": "DB01041",
+        "pmid_evidence": ["10565866"]
+    },
+    {
+        "source_disease": "Erectile Dysfunction",
+        "original_drug": "None",
+        "repurposed_drug": "Sildenafil",
+        "drugbank_id": "DB00150",
+        "pmid_evidence": ["9665191"]
+    }
+]

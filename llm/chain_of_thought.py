@@ -4,7 +4,7 @@ Produces structured JSON output anchored to supplied evidence.
 """
 import json
 import logging
-from llm.client import get_ollama_client
+from llm.client import get_llm_client
 from llm.explanation_schema import StructuredExplanation, ExplanationBasis
 from schemas.explanation import EvidenceTier
 
@@ -47,7 +47,7 @@ async def generate_cot_explanation(
         counter=json.dumps(counter_evidence[:3], indent=2),
     )
 
-    client = get_ollama_client()
+    client = get_llm_client()
     response = await client.generate(prompt)
 
     try:

@@ -70,20 +70,23 @@ async def run_pipeline(
         drug_id = path["drug_id"]
         gnn_score = gnn_scores.get(drug_id, 0.0)
 
-        # Graph score from path confidence
         graph_score = path.get("path_confidence", 0.5)
 
         # RAG retrieval
         literature = []
         if rag_retriever:
-            results = rag_retriever.retrieve_for_candidate(
+            raw_results = rag_retriever.retrieve_for_candidate(
                 drug_name=drug_id,
                 disease_name=disease_cui,
                 top_k=3,
             )
-            literature = results
+            literature = raw_results
 
         evidence_score = min(len(literature) / 5.0, 1.0) if literature else 0.0
+
+        # Convert raw results to RetrievedEvidence and check counter-evidence
+        lit_objects = build_evidence_packet(literature, [])
+        counter = check_counter_evidence(drug_id, disease_cui, len(literature))
 
         candidates.append(assemble_candidate(
             drug_name=f"Drug:{drug_id}",
@@ -93,7 +96,8 @@ async def run_pipeline(
             evidence_score=evidence_score,
             trial_score=0.0,
             learned_score=gnn_score,
-            literature=[],  # Will be converted properly
+            literature=lit_objects,
+            counter_evidence=counter,
             trial_count=0,
         ))
 

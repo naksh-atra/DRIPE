@@ -12,7 +12,7 @@ BATCH_SIZE = 500
 class GraphEngine:
     def __init__(self):
         self.uri      = os.getenv("NEO4J_URI")
-        self.user     = os.getenv("NEO4J_USER", "neo4j")
+        self.user     = os.getenv("NEO4J_USERNAME") or os.getenv("NEO4J_USER", "neo4j")
         self.password = os.getenv("NEO4J_PASSWORD")
         self.database = os.getenv("NEO4J_DATABASE", "neo4j")
         self.driver   = None

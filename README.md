@@ -72,13 +72,6 @@ python scripts/run_mvp_evaluation.py
 | `ingestion/` | RA-specific loaders for ChEMBL, ClinicalTrials.gov, PubMed |
 | `config/` | Disease program definition (YAML) |
 
-## Design Documents
-
-Detailed design decisions are documented in `data/`:
-- `dripe_v2_engineering_plan.md` — Full v2 execution plan
-- `dripe_deliverable_*.md` — Design specs for disease scope, graph, ranking, retrieval, evaluation
-- `dripe_mvp_design_response.md` — Answers to 25 design questions
-
 ## License
 
 Apache 2.0

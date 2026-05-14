@@ -1,32 +1,42 @@
+"""
+Safety filter for DRIPE v2 LLM output.
+Scans structured explanations for forbidden clinical language.
+"""
 import re
+import logging
+from typing import List
 
-FORBIDDEN_PHRASES = [
-    "should be administered",
-    "recommended dose",
-    "prescribe",
-    "give to the patient",
-    "effective treatment for",
-    "proven to treat",
-    "will cure",
+logger = logging.getLogger(__name__)
+
+FORBIDDEN_PATTERNS = [
+    r"should be (administered|prescribed|taken|used)",
+    r"recommend(ed|ing|ation)?",
+    r"dose of",
+    r"dosage",
+    r"clinical (trial|study) suggests",
+    r"patient should",
+    r"prescribe",
 ]
 
-DOSAGE_PATTERN = r"\d+\s*(mg|mcg|g|IU)"
 
-def scan_for_safety_violations(text: str) -> bool:
-    """Returns True if any forbidden clinical recommendation language is found."""
-    for phrase in FORBIDDEN_PHRASES:
-        if phrase in text.lower():
-            return True
-    if re.search(DOSAGE_PATTERN, text):
-        return True
-    return False
+SYSTEM_PROMPTS = [
+    r"you are (a|an) (helpful|AI|clinical|medical) assistant",
+]
 
-def sanitize_response(text: str) -> str:
-    """
-    Scans and potentially flags text for rewriting.
-    In the full implementation, this triggers a second LLM call.
-    """
-    if scan_for_safety_violations(text):
-        # Trigger rewrite logic (omitted in skeleton)
-        return "[REWRITTEN FOR SAFETY] " + text 
-    return text
+
+def scan_for_safety_violations(text: str) -> List[str]:
+    """Scan text for forbidden clinical language patterns."""
+    violations = []
+    text_lower = text.lower()
+    for pattern in FORBIDDEN_PATTERNS:
+        if re.search(pattern, text_lower):
+            violations.append(f"Pattern matched: '{pattern}'")
+    return violations
+
+
+def sanitize_response(summary: str, violations: List[str]) -> str:
+    """Remove or flag safety violations from summary text."""
+    if not violations:
+        return summary
+    logger.warning(f"Safety violations detected: {violations}")
+    return summary + " [Safety warning: contains clinical language detected]"

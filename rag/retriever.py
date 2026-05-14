@@ -1,45 +1,69 @@
+"""
+RAG retriever for DRIPE v2.
+Candidate-aware retrieval with evidence packet assembly.
+"""
 import logging
-from typing import List, Dict
-import numpy as np
-import sqlite3
-import faiss
-from rag.embedder import MedGemmaEmbedder
+from typing import List, Dict, Optional
+
+from rag.embedder import get_embedder
+from rag.vectorstore import get_vector_store
+from rag.query_builder import build_candidate_queries
+from rag.evidence_packet import build_evidence_packet, check_counter_evidence
+from schemas.response import RetrievedEvidence, CounterEvidence
 
 logger = logging.getLogger(__name__)
 
-class Retriever:
-    def __init__(self, vectorstore, embedder: MedGemmaEmbedder):
-        self.vectorstore = vectorstore
-        self.embedder = embedder
 
-    async def retrieve_context(self, drug_name: str, disease_name: str, top_k: int = 10) -> List[Dict]:
-        """
-        Retrieves top K semantically relevant PubMed chunks for a drug-disease pair.
-        """
-        query_str = f"drug {drug_name} mechanism disease {disease_name} repurposing therapeutic"
-        query_embedding = self.embedder.embed_text(query_str).numpy().astype('float32')
-        
-        # Search FAISS
-        distances, indices = self.vectorstore.index.search(query_embedding, top_k)
-        
-        results = []
-        # Connect to metadata DB
-        conn = sqlite3.connect(self.vectorstore.db_path)
-        cursor = conn.cursor()
-        
-        for idx, dist in zip(indices[0], distances[0]):
-            if idx == -1: continue
-            
-            # FAISS index is 0-indexed, but sqlite rowid might start at 1
-            cursor.execute("SELECT pmid, chunk_text, year FROM chunks WHERE rowid = ?", (int(idx) + 1,))
-            row = cursor.fetchone()
-            if row:
-                results.append({
-                    "pmid": row[0],
-                    "text": row[1],
-                    "year": row[2],
-                    "relevance_score": float(dist)
-                })
-        
-        conn.close()
-        return results
+class Retriever:
+    """RAG retriever for DRIPE v2."""
+
+    def __init__(self):
+        self.embedder = None
+        self.vectorstore = None
+
+    def _initialize(self):
+        if self.embedder is None:
+            self.embedder = get_embedder()
+        if self.vectorstore is None:
+            self.vectorstore = get_vector_store()
+
+    def retrieve_for_candidate(
+        self,
+        drug_name: str,
+        disease_name: str,
+        targets: Optional[List[str]] = None,
+        top_k: int = 3,
+    ) -> List[Dict]:
+        """Retrieve evidence for a single candidate using candidate-aware queries."""
+        self._initialize()
+
+        queries = build_candidate_queries(drug_name, disease_name, targets)
+        seen_pmids = set()
+        all_results = []
+
+        for query in queries:
+            query_embedding = self.embedder.embed_text(query)
+            results = self.vectorstore.search(query_embedding, top_k)
+            for r in results:
+                pmid = r.get("pmid") or r.get("identifier", "")
+                if pmid not in seen_pmids:
+                    seen_pmids.add(pmid)
+                    all_results.append(r)
+
+        return all_results[:top_k * 2]
+
+    async def retrieve_context(
+        self, drug_name: str, disease_name: str, top_k: int = 5
+    ) -> List[Dict]:
+        """Async wrapper for backwards compatibility."""
+        return self.retrieve_for_candidate(drug_name, disease_name, top_k=top_k)
+
+
+_singleton: Retriever = None
+
+
+def get_retriever() -> Retriever:
+    global _singleton
+    if _singleton is None:
+        _singleton = Retriever()
+    return _singleton

@@ -1,27 +1,84 @@
-class PromptBuilder:
-    @staticmethod
-    def build_cot_prompt(drug: str, disease: str, paths: list, literature: list, safety: dict) -> str:
-        system_msg = (
-            "You are a biomedical research assistant. Your role is to explain why a drug may be a candidate "
-            "for repurposing based on provided graph paths and literature evidence. You must cite every claim "
-            "with a specific source. You must never use language that implies clinical recommendation, "
-            "dosage, or direct patient application. You must never fabricate citations. If a claim cannot be "
-            "supported by the provided context, you must say so explicitly."
+"""
+Chain-of-thought explanation for DRIPE v2.
+Produces structured JSON output anchored to supplied evidence.
+"""
+import json
+import logging
+from llm.client import get_ollama_client
+from llm.explanation_schema import StructuredExplanation, ExplanationBasis
+from schemas.explanation import EvidenceTier
+
+logger = logging.getLogger(__name__)
+
+PROMPT_PATH = "llm/prompts/explanation_json_prompt.txt"
+
+
+def _load_prompt_template() -> str:
+    with open(PROMPT_PATH) as f:
+        return f.read()
+
+
+async def generate_cot_explanation(
+    drug: str,
+    disease: str,
+    paths: list,
+    literature: list = None,
+    safety: dict = None,
+    trials: list = None,
+    counter_evidence: list = None,
+) -> StructuredExplanation:
+    """Generate structured explanation from supplied evidence."""
+    if literature is None:
+        literature = []
+    if safety is None:
+        safety = {}
+    if trials is None:
+        trials = []
+    if counter_evidence is None:
+        counter_evidence = []
+
+    template = _load_prompt_template()
+    prompt = template.format(
+        drug_name=drug,
+        disease_name=disease,
+        paths=json.dumps(paths[:3], indent=2),
+        literature=json.dumps(literature[:3], indent=2),
+        trials=json.dumps(trials[:3], indent=2),
+        counter=json.dumps(counter_evidence[:3], indent=2),
+    )
+
+    client = get_ollama_client()
+    response = await client.generate(prompt)
+
+    try:
+        data = json.loads(response)
+        return StructuredExplanation(
+            structured_summary=data.get("structured_summary", ""),
+            plain_language_summary=data.get("plain_language_summary", ""),
+            uncertainty_statement=data.get("uncertainty_statement", ""),
+            basis=ExplanationBasis(
+                graph_paths_count=len(paths),
+                literature_chunks=len(literature),
+                trial_count=len(trials),
+                evidence_tier=_determine_tier(len(paths), len(literature), len(trials)),
+                is_known_indication=False,
+            ),
         )
-        
-        user_content = f"Target Drug: {drug}\nTarget Disease: {disease}\n\n"
-        user_content += "Graph Evidence:\n"
-        for i, path in enumerate(paths):
-            user_content += f"{i+1}. {path}\n"
-            
-        user_content += "\nLiterature Evidence:\n"
-        for lit in literature:
-            user_content += f"- {lit['text']} (PMID: {lit['pmid']})\n"
-            
-        user_content += f"\nSafety Profile (OpenFDA):\n{safety}\n\n"
-        user_content += (
-            "Task: Produce a Chain-of-Thought explanation (5-8 sentences) explaining the mechanism "
-            "supporting this hypothesis. Add a citation at the end of every sentence."
+    except (json.JSONDecodeError, KeyError) as e:
+        logger.warning(f"Failed to parse LLM response as JSON: {e}")
+        return StructuredExplanation(
+            structured_summary="Explanation generation failed.",
+            plain_language_summary="Could not generate summary.",
+            uncertainty_statement="LLM output could not be parsed.",
         )
-        
-        return f"{system_msg}\n\n{user_content}"
+
+
+def _determine_tier(path_count: int, lit_count: int, trial_count: int) -> EvidenceTier:
+    total = path_count + lit_count + trial_count
+    if total >= 10:
+        return EvidenceTier.STRONG
+    elif total >= 5:
+        return EvidenceTier.MODERATE
+    elif total >= 1:
+        return EvidenceTier.WEAK
+    return EvidenceTier.INSUFFICIENT

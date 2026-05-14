@@ -24,6 +24,7 @@ class HypothesisCandidate(BaseModel):
     retrieved_literature: List[Dict]
     safety_flags: List[str]
     next_steps: str
+    llm_explanation: Optional[str] = None
 
 class QueryResponse(BaseModel):
     query_disease: str

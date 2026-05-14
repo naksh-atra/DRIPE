@@ -1,25 +1,67 @@
-import torch
-from transformers import AutoTokenizer, AutoModel
+"""
+Sentence transformer embedder for DRIPE RAG layer.
+Uses lightweight models for semantic search.
+"""
 import logging
+from typing import List
+import numpy as np
+from sentence_transformers import SentenceTransformer
 
 logger = logging.getLogger(__name__)
 
-class MedGemmaEmbedder:
-    def __init__(self, model_id="google/medgemma-2b"): # Placeholder for real 4B/9B model
-        self.tokenizer = AutoTokenizer.from_pretrained(model_id)
-        self.device = "cuda" if torch.cuda.is_available() else "cpu"
-        self.model = AutoModel.from_pretrained(
-            model_id, 
-            torch_dtype=torch.bfloat16 if self.device == "cuda" else torch.float32
-        ).to(self.device)
-        
-        if self.device == "cpu":
-            logger.warning("RAG Layer running on CPU. Inference will be slow.")
+# Default model - lightweight and effective for semantic search
+DEFAULT_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 
-    def embed_text(self, text: str) -> torch.Tensor:
-        inputs = self.tokenizer(text, return_tensors="pt", padding=True, truncation=True, max_length=512).to(self.device)
-        with torch.no_grad():
-            outputs = self.model(**inputs)
-            # Use mean pooling or CLS token
-            embeddings = outputs.last_hidden_state.mean(dim=1)
-        return embeddings.cpu()
+
+class Embedder:
+    """Wrapper for sentence-transformers embeddings."""
+    
+    def __init__(self, model_name: str = DEFAULT_MODEL):
+        self.model_name = model_name
+        self.model = None
+        self._load_model()
+    
+    def _load_model(self):
+        """Load the sentence transformer model."""
+        try:
+            logger.info(f"Loading embedder model: {self.model_name}")
+            self.model = SentenceTransformer(self.model_name)
+            logger.info(f"Embedder loaded successfully (dim={self.model.get_sentence_embedding_dimension()})")
+        except Exception as e:
+            logger.error(f"Error loading embedder: {e}")
+            self.model = None
+    
+    def embed_text(self, text: str) -> np.ndarray:
+        """Embed a single text string."""
+        if self.model is None:
+            return np.zeros(384, dtype=np.float32)
+        
+        embedding = self.model.encode(text, normalize_embeddings=True)
+        return embedding.astype(np.float32)
+    
+    def embed_batch(self, texts: List[str]) -> np.ndarray:
+        """Embed a batch of texts."""
+        if self.model is None:
+            return np.zeros((len(texts), 384), dtype=np.float32)
+        
+        embeddings = self.model.encode(texts, normalize_embeddings=True, show_progress_bar=True)
+        return embeddings.astype(np.float32)
+    
+    @property
+    def dimension(self) -> int:
+        """Get embedding dimension."""
+        if self.model is None:
+            return 384
+        return self.model.get_sentence_embedding_dimension()
+
+
+# Singleton instance
+_embedder: Embedder = None
+
+
+def get_embedder() -> Embedder:
+    """Get or create singleton embedder."""
+    global _embedder
+    if _embedder is None:
+        _embedder = Embedder()
+    return _embedder

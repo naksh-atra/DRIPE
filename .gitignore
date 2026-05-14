@@ -38,3 +38,6 @@ request_logs/
 .vscode/
 .idea/
 .DS_Store
+
+# Windows system files
+nul

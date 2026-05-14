@@ -18,8 +18,14 @@ snapshots/*.tar.gz
 snapshots/*.json
 
 # FAISS and SQLite local databases
-faiss_index.bin
-pubmed_chunks.db
+data/faiss_index.bin
+data/pubmed_chunks.db
+*.db
+*.bin
+
+# Server logs
+server.log
+*.log
 
 # Logs
 training_log.json

@@ -18,7 +18,6 @@ from guardrails.disclaimer_injector import DISCLAIMER_TEXT
 from graph.graph_builder import GraphEngine
 from graph.coverage_report import CoverageReporter
 from graph.path_traversal import PathTraversal
-from gnn.inference import get_predictor
 from rag.retriever import get_retriever
 from services.query_pipeline import run_pipeline
 
@@ -43,8 +42,23 @@ graph_engine.connect()
 classifier = QueryClassifier()
 coverage_reporter = CoverageReporter(graph_engine)
 path_traversal = PathTraversal(graph_engine)
-gnn_predictor = get_predictor()
 rag_retriever = get_retriever()
+
+# Lazy GNN predictor (avoids torch_geometric memory issues at import time)
+gnn_predictor = None
+
+
+def _get_gnn():
+    global gnn_predictor
+    if gnn_predictor is None:
+        try:
+            from gnn.inference import get_predictor
+            gnn_predictor = get_predictor()
+            logger.info("GNN predictor loaded lazily")
+        except Exception as e:
+            logger.warning(f"GNN not available: {e}")
+            gnn_predictor = None
+    return gnn_predictor
 
 
 @app.post("/query", response_model=QueryResponse)
@@ -59,13 +73,15 @@ async def run_query(request: QueryRequest):
 
     # Run pipeline
     try:
+        graph_engine.ensure_connected()
+        predictor = _get_gnn()
         response = await asyncio.wait_for(
             run_pipeline(
                 request=request,
                 graph_engine=graph_engine,
                 path_traversal=path_traversal,
                 coverage_reporter=coverage_reporter,
-                gnn_predictor=gnn_predictor,
+                gnn_predictor=predictor,
                 rag_retriever=rag_retriever,
             ),
             timeout=120,
@@ -82,8 +98,12 @@ async def run_query(request: QueryRequest):
 @app.get("/health")
 async def health_check():
     neo4j_status = "up" if graph_engine.is_connected() else "down"
+    gnn_status = "unavailable"
+    p = _get_gnn()
+    if p is not None:
+        gnn_status = "loaded" if getattr(p, 'loaded', False) else "error"
     return {
         "status": "healthy" if neo4j_status == "up" else "degraded",
         "version": "2.0.0",
-        "services": {"neo4j": neo4j_status, "rag": "up", "gnn": "loaded" if gnn_predictor.loaded else "unavailable"},
+        "services": {"neo4j": neo4j_status, "rag": "up", "gnn": gnn_status},
     }

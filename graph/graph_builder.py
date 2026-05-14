@@ -47,6 +47,18 @@ class GraphEngine:
     def is_connected(self) -> bool:
         return self.driver is not None
 
+    def ensure_connected(self) -> bool:
+        """Verify connection is alive and reconnect if defunct."""
+        if self.driver is None:
+            return self.connect()
+        try:
+            self.driver.verify_connectivity()
+            return True
+        except Exception:
+            logger.warning("Neo4j connection defunct, reconnecting...")
+            self.close()
+            return self.connect()
+
     # ── Indexes ───────────────────────────────────────────────────────────────
     def create_indexes(self):
         """
@@ -141,6 +153,7 @@ class GraphEngine:
 
     def run_cypher(self, cypher: str, params: dict = None):
         """Generic Cypher query. Returns list of dicts."""
+        self.ensure_connected()
         if not self.driver:
             return []
         with self.driver.session(database=self.database) as session:

@@ -13,7 +13,6 @@ from services.candidate_assembler import assemble_candidate
 from graph.graph_builder import GraphEngine
 from graph.path_traversal import PathTraversal
 from graph.coverage_report import CoverageReporter
-from gnn.inference import get_predictor
 from rag.retriever import get_retriever
 from rag.evidence_packet import build_evidence_packet, check_counter_evidence
 from llm.chain_of_thought import generate_cot_explanation
@@ -53,16 +52,19 @@ async def run_pipeline(
     # 3. Graph traversal
     paths = await path_traversal.get_drug_disease_paths(disease_cui)
 
-    # 4. GNN scoring (if available)
+    # 4. GNN scoring (if available, gracefully handles model/data mismatch)
     gnn_scores = {}
     if paths and gnn_predictor and gnn_predictor.loaded:
         drug_ids = list(set(p["drug_id"] for p in paths))
         if graph_engine.is_connected():
-            predictions = gnn_predictor.predict_links(
-                drug_ids, [disease_cui], graph_engine, top_k=50
-            )
-            for pred in predictions:
-                gnn_scores[pred["drug_id"]] = pred["score"]
+            try:
+                predictions = gnn_predictor.predict_links(
+                    drug_ids, [disease_cui], graph_engine, top_k=50
+                )
+                for pred in predictions:
+                    gnn_scores[pred["drug_id"]] = pred["score"]
+            except Exception as e:
+                logger.warning(f"GNN prediction failed (shape mismatch expected with new graph): {e}")
 
     # 5. Assemble candidates with ranking and retrieval
     candidates = []

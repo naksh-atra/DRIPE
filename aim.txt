@@ -1,0 +1,83 @@
+# DRIPE: Drug Repurposing Intelligence Engine
+
+## 1. Motivation & Problem Statement
+
+Drug development remains a protracted and exorbitantly costly endeavor, with novel pharmaceuticals requiring 10-15 years and over $2.6 billion to bring to market, compounded by failure rates exceeding 90% in clinical trials. This bottleneck is particularly acute for rare and neglected diseases, where sparse clinical data and limited economic incentives deter investment in de novo drug discovery. Drug repurposing—identifying new therapeutic indications for existing, approved drugs—offers a compelling alternative, reducing development timelines to 3-5 years and costs by up to 40%, while leveraging established safety profiles from prior approvals.
+
+The core challenge lies in systematically uncovering latent drug-disease associations amid heterogeneous biomedical data silos, including bioactivity profiles, literature corpora, adverse event reports, and clinical trial outcomes. Traditional serendipity-driven approaches (e.g., sildenafil's pivot from angina to erectile dysfunction) are inefficient and unscalable. Computational methods, particularly those harnessing biomedical knowledge graphs (KGs), frame repurposing as a **link prediction** task: inferring missing edges between drug and disease nodes in a graph of entities (genes, pathways, anatomies) and relations (treats, causes, inhibits). However, prevailing KG-based models suffer from black-box predictions, data sparsity for rare diseases, and neglect of socio-economic equity, impeding clinical translation and global health prioritization.
+
+DRIPE addresses these gaps through an agentic AI pipeline that integrates graph neural networks (GNNs), retrieval-augmented generation (RAG), and chain-of-thought (CoT) reasoning over a comprehensive KG, yielding interpretable, equity-aware hypotheses for drug repurposing.
+
+## 2. Project Aim
+
+DRIPE aims to pioneer an **agentic, explainable knowledge graph reasoning engine** that discovers and ranks novel therapeutic repurposings for approved drugs, prioritizing candidates for underserved diseases via socio-economic weighting. By fusing multi-modal biomedical data into a heterogeneous KG, DRIPE employs GNN-driven link prediction, RAG-enhanced retrieval, and LLM-orchestrated hypothesis generation to produce mechanistically grounded predictions—explaining *why* a drug may treat a disease through paths involving targets, pathways, and phenotypes—while enforcing safety guardrails and equity via WHO Global Burden of Disease (GBD) integration.
+
+## 3. Theoretical Framework
+
+DRIPE's framework builds on heterogeneous KG completion for drug repurposing, where biomedical knowledge is modeled as a directed graph G = (V, E), with nodes V encompassing drugs, diseases, genes, pathways, anatomies, and phenotypes, and edges E capturing relations like **DRUGBANK.treats**, **Hetionet.CpD**, or **GOBP.involved_in**. Repurposing reduces to predicting edges (d, r, dis) (drug d related to disease dis via predicate r, e.g., "treats"), leveraging graph structure to infer latent mechanisms absent in isolated datasets.
+
+**Graph Neural Networks (GNNs)** excel here via message-passing: node embeddings aggregate neighbor features, capturing multi-hop dependencies (e.g., drug → target → pathway → disease). **Graph Attention Networks (GAT)** introduce attention mechanisms weighting paths by relevance, enabling transfer learning from high-resource diseases to sparse ones via fine-tuning on augmented subgraphs.
+
+**Retrieval-Augmented Generation (RAG)** mitigates LLM hallucination by grounding reasoning in retrieved KG subgraphs and literature, using dense embeddings (e.g., MedGemma) for semantic retrieval from FAISS. **Agentic LLM reasoning** employs CoT prompting to decompose predictions into interpretable paths, akin to metapath-guided explanations, where paths like drug → side-effect → disease provide biomedical rationale.
+
+Equity is formalized via an **Equity Ranker**: post-prediction scores S = P(link) * E(drug, disease), where E weights by GBD disability-adjusted life years (DALYs), affordability (generic status, production cost), and accessibility (supply chain indices), prioritizing repurposings for low/middle-income countries.
+
+This framework advances state-of-the-art by integrating end-to-end agentic reasoning and equity, enhancing interpretability for clinical validation.
+
+## 4. Technical Architecture & Process
+
+### 4.1 Core Data Ingestion & Knowledge Graph Schema
+DRIPE ingests multi-source data into a unified heterogeneous KG stored in **Neo4j Aura** (schema: ~10M nodes, 100M edges):
+- **RTX-KG2** (foundation): Hetionet-inspired triples (drugs, diseases, genes).
+- **ChEMBL**: Bioactivity (IC50, Ki) edges (drug → target).
+- **PubMed OA**: NLP-extracted relations (e.g., BioBERT for "inhibits").
+- **OpenFDA**: Adverse events (phenotype edges).
+- **ClinicalTrials.gov**: Trial outcomes (drug → disease → phase).
+
+**Schema** (Cypher example):
+```cypher
+CREATE (d:Drug {chembl_id: '...', approved: true})
+CREATE (dis:Disease {mondo_id: '...', gbd_daly: 1e6})
+CREATE (g:Gene {hgnc_id: '...'})
+CREATE (d)-[:INHIBITS {ic50: 1.2e-9}]->(g)-[:ASSOCIATED_WITH]->(dis)
+```
+Data pipelines use Python workflows for ETL, with SMOTE-like augmentation for rare disease balance.
+
+Metadata/documents in **MongoDB Atlas**; **Redis** for session caching; **FAISS** for vector search (MedGemma embeddings, dim=3072).
+
+### 4.2 ML/AI Pipeline
+1. **GNN Link Prediction (Graph Attention Networks)**: PyTorch Geometric implementation on RTX-KG2 subgraph. GAT layers (3-layer, 8-head attention, hidden_dim=512) predict P(d treats dis). Transfer learning: pretrain on abundant edges (e.g., oncology), fine-tune with LoRA on rare diseases (e.g., monogenic disorders). Loss: binary cross-entropy + path-contrastive. Outputs top-K drug-disease pairs with path explanations (e.g., shortest paths via Neo4j GDS).
+
+2. **RAG Layer**: Embed KG subgraphs and PubMed snippets with **MedGemma** (fine-tuned Gemma-7B on biomedical corpus). FAISS retrieves top-20 contexts for query "drug X for disease Y".
+
+3. **Agentic LLM Reasoning Layer**: Orchestrator with CoT prompting:
+   ```
+   <role>Biomedical Expert</role>
+   Analyze paths from GNN+RAG. Generate hypothesis: Mechanism? Evidence strength? Risks?
+   CoT: Step1: List paths. Step2: Infer MOA. Step3: Score confidence.
+   ```
+   Outputs structured JSON: `{hypothesis, paths, confidence: 0-1, risks}`. Multi-agent: Critic agent validates via counterfactuals.
+
+4. **Guardrails & Equity Ranker**: Prompt shields ("Do not recommend unapproved uses; flag off-label risks"). Equity: E = w_1 * GBD_DALY + w_2 * (1 - cost_index) + w_3 * availability (hyperparams tuned).
+
+### 4.3 Application Layer
+**FastAPI** backend exposes `/query` internally with parallel scaling. **Streamlit** frontend: Interactive UI for path visualization, hypothesis explorer, equity dashboard.
+
+End-to-end latency optimized for research utilization.
+
+## 5. Limitations
+
+- **Data Bias**: KG sparsity for non-Western diseases; mitigation via augmentation incomplete.
+- **Interpretability Trade-offs**: Paths explain *associations*, not causation; requires wet-lab validation.
+- **Compute Intensity**: GNN training demands GPUs; inference scalable but fine-tuning ongoing.
+- **Regulatory**: Predictions are hypotheses, not prescriptions; no liability for misuse.
+- **Evaluation**: In silico benchmarks via historical data splitting; prospective clinical benchmarking pending.
+
+## 6. Future Aspects
+
+- **Validation**: Prospective benchmarking on real-world cohorts (e.g., UK Biobank); federated learning with pharma partners.
+- **Extensions**: Multi-omics integration (Protein structures); RLHF for hypothesis refinement; deployment as open API.
+- **Impact**: Target novel repurposing hypotheses, prioritizing GBD top-25 burdens; potential collaborations for LMIC trials.
+- **Scalability**: Distribute GNN training; incorporate real-time clinical trial updates.
+
+DRIPE positions at the vanguard of AI-driven precision medicine, merging rigorous KG reasoning with equitable global health priorities.

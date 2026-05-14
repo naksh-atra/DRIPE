@@ -1,29 +1,84 @@
 # DRIPE: Drug Repurposing Intelligence Engine
 
-DRIPE is an open-source research pipeline for drug repurposing, combining Knowledge Graphs, Graph Neural Networks (GNN), and LLM-based Chain-of-Thought reasoning.
+DRIPE is a research-only pipeline for drug repurposing hypothesis generation, focused on rheumatoid arthritis. It combines a biomedical knowledge graph, graph neural networks, RAG-based literature retrieval, and structured LLM explanations.
 
-## 🚨 Research Use Only
-This system is provided for research purposes **ONLY**. It is not a clinical decision tool and must not be used to inform medical treatment.
+## Status — v2 Milestone
+
+The architecture is proven and operational. The pipeline builds a reproducible RA-centered graph (602 nodes, 770+ edges), ranks drug candidates with interpretable scoring, retrieves supporting literature, and generates constrained explanations via a local/API LLM. **Current recall against known RA therapies is 0.0** because the graph currently contains ChEMBL assay compounds rather than approved drugs — the next variable is graph composition, not pipeline validity.
 
 ## Architecture
-- **Ingestion**: Pulls from RTX-KG2, ChEMBL, PubMed OA, OpenFDA, and ClinicalTrials.gov.
-- **Graph Engine**: Neo4j-backed knowledge graph with confidence re-weighting.
-- **Reasoning**: Link prediction via GAT (Graph Attention Network) and narration via MedGemma CoT.
-- **Equity**: Integrated WHO GBD disease burden re-weighting.
+
+```
+User Query (disease)
+    │
+    ▼
+1. Disease Resolver  ── canonical ID lookup (RA only)
+2. Path Traversal    ── Drug → Target → Disease paths in Neo4j
+3. Composite Ranking ── graph score (40%) + evidence (25%) + trial (20%) + GNN (15%)
+4. RAG Retrieval     ── FAISS semantic search over PubMed abstracts
+5. LLM Narrator      ── structured JSON explanation (OpenRouter / local)
+6. Evaluation        ── system vs path-count vs common-neighbor vs random
+```
 
 ## Quick Start
-1. **Clone and Setup Environment**:
-   ```bash
-   cp .env.example .env
-   # Update keys in .env
-   ```
-2. **Launch with Docker**:
-   ```bash
-   docker-compose up --build
-   ```
-3. **Access Interfaces**:
-   - API: http://localhost:8000/docs
-   - Frontend: http://localhost:8501
+
+### Prerequisites
+- Python 3.10+
+- Neo4j database (Aura cloud free tier recommended, or local Docker)
+- OpenRouter API key for LLM explanations (free tier available)
+
+### Setup
+```bash
+git clone https://github.com/naksh-atra/DRIPE.git
+cd DRIPE
+python -m venv dripenv
+source dripenv/bin/activate    # Linux/Mac
+dripenv\Scripts\activate       # Windows
+pip install -r requirements.txt
+cp .env.example .env
+# Edit .env with your Neo4j URI and OpenRouter key
+```
+
+### Build the RA graph
+```bash
+python -m scripts.build_ra_program_graph
+```
+
+### Start the API
+```bash
+python -m uvicorn api.main:app --host 0.0.0.0 --port 8000
+```
+
+### Test a query
+```bash
+python -m scripts.integration_test
+```
+
+### Run evaluation
+```bash
+python scripts/run_mvp_evaluation.py
+```
+
+## Key Modules
+
+| Module | Purpose |
+|--------|---------|
+| `api/` | FastAPI endpoint with v2 response contract |
+| `graph/` | Neo4j graph engine, path traversal, coverage reporting |
+| `ranking/` | Composite scorer, novelty buckets, 3 baselines |
+| `rag/` | FAISS index, candidate-aware retrieval, evidence packets |
+| `llm/` | OpenRouter client, structured explanation prompts |
+| `evaluation/` | Gold standard builder, ranking metrics, error taxonomy |
+| `ingestion/` | RA-specific loaders for ChEMBL, ClinicalTrials.gov, PubMed |
+| `config/` | Disease program definition (YAML) |
+
+## Design Documents
+
+Detailed design decisions are documented in `data/`:
+- `dripe_v2_engineering_plan.md` — Full v2 execution plan
+- `dripe_deliverable_*.md` — Design specs for disease scope, graph, ranking, retrieval, evaluation
+- `dripe_mvp_design_response.md` — Answers to 25 design questions
 
 ## License
-Apache 2.0. Compatible with open-source biomedical data redistributions.
+
+Apache 2.0

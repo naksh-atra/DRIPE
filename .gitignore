@@ -23,6 +23,10 @@ data/pubmed_chunks.db
 *.db
 *.bin
 
+# Model checkpoints
+checkpoints/
+*.pt
+
 # Server logs
 server.log
 *.log
@@ -41,3 +45,21 @@ request_logs/
 
 # Windows system files
 nul
+
+# OpenCode config (local dev only)
+.opencode/
+
+# Personal vault
+DRIPE_obsidian/
+
+# Temp/generated utility scripts
+scripts/name_drug_nodes.py
+scripts/fetch_chembl_names.py
+scripts/populate_faiss.py
+scripts/test_api.py
+
+# Generated data artifacts
+data/*.json
+
+# Internal design documents
+data/*.md

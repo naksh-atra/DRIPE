@@ -21,13 +21,17 @@ def _load():
         _KNOWN_MAP = get_known_indications()
         _ADJACENT_MAP = get_adjacent_therapies()
         _CHEMBL_NAME_MAP = get_chembl_id_map()
-        # Also build reverse map (chembl_id -> name)
+        # Build reverse map (chembl_id -> name)
         _CHEMBL_NAME_MAP.update({v: k for k, v in _CHEMBL_NAME_MAP.items()})
         # Add registry IDs to the name map
         for name, cid in _KNOWN_MAP.items():
             if cid:
                 _CHEMBL_NAME_MAP[cid.lower()] = name
                 _CHEMBL_NAME_MAP[cid.upper()] = name
+            # Also add RA_THERAPY_ID -> name for biologics
+            therapy_id = f"RA_THERAPY_{name}"
+            _CHEMBL_NAME_MAP[therapy_id.lower()] = name
+            _CHEMBL_NAME_MAP[therapy_id.upper()] = name
         for name, cid in _ADJACENT_MAP.items():
             if cid:
                 _CHEMBL_NAME_MAP[cid.lower()] = name

@@ -25,7 +25,7 @@ class PathTraversal:
             drug.entity_id AS drug_id,
             [n in nodes(p) | {{id: n.entity_id, type: n.entity_type}}] AS path_nodes,
             [r in relationships(p) | {{type: r.type, confidence: r.confidence}}] AS path_edges
-        LIMIT 10
+        LIMIT 50
         """
         try:
             results = self.engine.run_cypher(cypher, {"did": disease_id})

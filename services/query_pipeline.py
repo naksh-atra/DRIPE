@@ -66,13 +66,26 @@ async def run_pipeline(
             except Exception as e:
                 logger.warning(f"GNN prediction failed (shape mismatch expected with new graph): {e}")
 
-    # 5. Assemble candidates with ranking and retrieval
+    # 5. Count Drug→Trial edges for each candidate
+    trial_counts = {}
+    if graph_engine.is_connected():
+        drug_ids_for_trials = list(set(p["drug_id"] for p in paths))
+        for d_id in drug_ids_for_trials:
+            r = graph_engine.run_cypher(
+                "MATCH (n:Entity {entity_id: $eid})-[rb:BIOREL {type: 'TRIAL_INVESTIGATES'}]->() RETURN count(rb) AS c",
+                {"eid": d_id}
+            )
+            trial_counts[d_id] = r[0]["c"] if r else 0
+
+    # 6. Assemble candidates with ranking and retrieval
     candidates = []
     for i, path in enumerate(paths):
         drug_id = path["drug_id"]
         gnn_score = gnn_scores.get(drug_id, 0.0)
 
         graph_score = path.get("path_confidence", 0.5)
+        trial_count = trial_counts.get(drug_id, 0)
+        trial_score = min(trial_count / 10.0, 1.0)
 
         # RAG retrieval
         literature = []
@@ -96,11 +109,11 @@ async def run_pipeline(
             paths=[path],
             graph_score=graph_score,
             evidence_score=evidence_score,
-            trial_score=0.0,
+            trial_score=trial_score,
             learned_score=gnn_score,
             literature=lit_objects,
             counter_evidence=counter,
-            trial_count=0,
+            trial_count=trial_count,
         ))
 
     # Sort by composite score

@@ -25,6 +25,7 @@ class PathTraversal:
             drug.entity_id AS drug_id,
             [n in nodes(p) | {{id: n.entity_id, type: n.entity_type}}] AS path_nodes,
             [r in relationships(p) | {{type: r.type, confidence: r.confidence}}] AS path_edges
+        ORDER BY reduce(conf = 1.0, r IN relationships(p) | conf * COALESCE(r.confidence, 0.5)) DESC
         LIMIT 50
         """
         try:

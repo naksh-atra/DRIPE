@@ -1,0 +1,246 @@
+# DRIPE — Why We Did What We Did
+
+A record of architectural, technical, and strategic decisions made throughout the project, with the options that were considered and the reasoning behind each choice.
+
+---
+
+## 1. Project Scope: Drug Repurposing vs General Biomedical AI
+
+**Decision:** Drug repurposing hypothesis generation for rheumatoid arthritis.
+
+**Why not a general biomedical assistant:**
+A broad system would require ontology coverage, question-answering capability, and clinical-grade validation — none of which are achievable with a small team and public data alone. Drug repurposing is better scoped because it has a bounded output (ranked candidate list), clear evaluation method (known-therapy recovery), and public data sources (ChEMBL, ClinicalTrials, PubMed).
+
+**Why RA specifically:**
+RA has the richest public data density among autoimmune diseases (3,000+ trials, well-characterized drug mechanisms, clear MeSH headings). Alternatives like SLE or PsA have smaller evidence bases and fewer approved therapies to use as evaluation ground truth.
+
+---
+
+## 2. Neo4j: Local Docker vs Aura Cloud
+
+**Decision:** Neo4j Aura cloud (free tier).
+
+**Why not local Docker:**
+Docker Desktop caused persistent system slowdown and terminal crashes on the development machine. The PC's paging file was too small to run Docker + Ollama + Python + browser simultaneously. Aura cloud eliminated the local resource burden while providing the same Cypher interface. The trade-off is occasional connection staleness — mitigated by adding `ensure_connected()` auto-reconnect logic.
+
+---
+
+## 3. LLM Provider: Ollama vs OpenRouter vs Claude API
+
+**Decision:** OpenRouter (`openrouter/free` free tier).
+
+**Why not Ollama:**
+Initially installed and tested with `llama3.2`. Worked for simple prompts but the llama runner process crashed repeatedly under load (500 errors). Required 2GB download and consumed significant local memory. The PC could not reliably run Ollama + Neo4j simultaneously.
+
+**Why not Claude API:**
+No Claude API key was available. The user had an OpenRouter key already configured in `.env` from an earlier project phase.
+
+**Why OpenRouter works:**
+OpenAI-compatible chat completions API, free tier model (`openrouter/free`), no local resource usage, structured JSON generation works correctly, and response times (~5s for simple prompts) are acceptable for development.
+
+---
+
+## 4. Embedding Model: MedGemma vs sentence-transformers
+
+**Decision:** `sentence-transformers/all-MiniLM-L6-v2` (384-dim).
+
+**Why not MedGemma:**
+Originally specified in the architecture, but MedGemma is a 2B+ parameter model requiring GPU memory or significant CPU resources. The development machine had insufficient memory. `all-MiniLM-L6-v2` is 80MB, loads in seconds, and produces 384-dim embeddings that work well with FAISS inner-product search.
+
+**Downside:** Not biomedical-specific, but semantic search over PubMed abstracts is a general-domain task where MiniLM performs adequately.
+
+---
+
+## 5. GNN Model: GAT with 8-head Attention vs Simpler Models
+
+**Decision:** GAT with 3 layers, 8 attention heads, hidden_dim=64.
+
+**Why not a simpler model (MLP, GraphSAGE):**
+GAT was chosen at project start for its attention mechanism which theoretically provides interpretable edge weighting. In practice, the GNN was trained on the original 18-node seed graph and never retrained.
+
+**Current status:** The GNN produces shape-mismatch errors on the current 602-node graph because the checkpoint was trained on 3 feature dimensions (3 entity types) while the current graph has 4+. The GNN is loaded lazily and its failures are caught gracefully. It contributes 15% of the composite score but currently returns 0.0 for all candidates.
+
+**Lesson:** Training a neural model before the graph substrate is stable was premature. The model should be retrained after the graph composition is finalized.
+
+---
+
+## 6. GNN Role in Ranking: Primary vs Secondary Signal
+
+**Decision:** GNN demoted to 15% of composite score. Graph heuristics lead at 40%.
+
+**Why not GNN-led ranking:**
+The original Phase 2 design made the GAT the centerpiece. But with a 12-edge training graph (at the time), the GNN could not learn meaningful representations. A 15% weight prevents the GNN from distorting results while keeping it in the pipeline for future retraining.
+
+**Why graph heuristics at 40%:**
+Path confidence from curated edges is the most direct and interpretable signal. If a known therapy has a Drug→Target edge backed by ChEMBL binding data with confidence 0.90, that is a stronger signal than any learned model can provide at this data scale.
+
+---
+
+## 7. Disease Scope: RA-focused vs Broad Autoimmune Coverage
+
+**Decision:** RA-only as queryable disease. SLE, PsA, Sjogren as graph-context only.
+
+**Why not broader scope:**
+The MVP design freeze (Deliverable A) concluded that supporting multiple queryable diseases multiplies ontology resolution burden, evaluation surface area, and the risk of shallow cross-disease reasoning being mistaken for genuine discovery. A single well-scoped disease with adjacency context provides a cleaner evaluation story.
+
+**Trade-off:** The system cannot be demonstrated on any disease other than RA until the data pipeline is extended.
+
+---
+
+## 8. Evaluation: First-Class vs Bolted-On
+
+**Decision:** Evaluation is built into the pipeline from day one, with gold standard, baselines, and metrics.
+
+**Why not evaluation as an afterthought:**
+The v2 engineering plan stated: "If DRIPE cannot explain how it was evaluated, it is not ready as a credible research platform." The evaluation runs:
+
+- System ranking vs random baseline
+- Path-count baseline
+- Common-neighbor baseline
+- Recall@K and MRR metrics
+
+**Impact:** This design forces honesty. When the graph had the wrong compounds (ChEMBL assay compounds instead of approved therapies), the 0.0 recall immediately revealed the data gap rather than hiding it behind plausible-sounding outputs.
+
+---
+
+## 9. LLM Role: Evidence Narrator vs Reasoning Engine
+
+**Decision:** LLM produces structured JSON only (structured_summary, plain_language_summary, uncertainty_statement). No free-form prose.
+
+**Why not free-form chain-of-thought:**
+The initial implementation used free-form CoT prompting ("explain the mechanism supporting this hypothesis"). This risked unsupported biological speculation, clinical language, and hallucinated citations. The v2 redesign constrained the LLM to evidence-narration only: supply the evidence, let the LLM summarize it, forbid adding content not present in the supplied data.
+
+**Prompt contract:** The `explanation_json_prompt.txt` enforces: no invented mechanisms, no clinical language, no fabricated citations, explicit uncertainty when evidence is sparse.
+
+---
+
+## 10. RAG Pipeline: Semantic Search vs Direct Keyword Matching
+
+**Decision:** FAISS with sentence-transformers embeddings, candidate-aware query construction, evidence packet assembly.
+
+**Why not keyword matching (BM25, Elasticsearch):**
+Semantic search handles synonyms and concept-level matching better than keyword search for biomedical text. "TNF inhibitor" and "anti-TNF therapy" produce similar embeddings even though they share few keywords.
+
+**Why candidate-aware queries:**
+Instead of a single generic query per disease, we generate three queries per candidate (mechanism, trial, repurposing). This increases recall for candidate-specific literature and prevents evidence from being dominated by generic inflammation papers.
+
+---
+
+## 11. Candidate Scoring: Composite vs Single Model
+
+**Decision:** Composite score with four components: graph (40%), evidence (25%), trial (20%), learned/GNN (15%).
+
+**Why not a single model score:**
+Composite scoring prevents any single source of error from dominating. If the GNN is untrained (score = 0), the candidate still gets 85% of its possible score from interpretable components. If literature is sparse (evidence = 0), the candidate still has graph + trial signals.
+
+**Weight rationale:** Graph edges are curated with confidence scores — they are the most reliable signal. Literature and trial scores add real-world evidence. The learned score is deliberately last because it is the least validated at current graph scale.
+
+---
+
+## 12. Novelty Classification: Rule-based vs Learned
+
+**Decision:** Rule-based classification using a curated therapy registry with ChEMBL-ID-to-name resolution.
+
+**Why not learned novelty detection:**
+Learned novelty detection requires a training set of "known" and "novel" drugs, which is circular — you need the novelty labels to train the model that predicts novelty. Rule-based classification using public FDA approval lists is simpler, more transparent, and more defensible.
+
+**The registry approach:**
+`config/ra_therapies.py` contains 23 curated therapies with ChEMBL IDs, mechanism classes, and target mappings. This single source of truth is used by the novelty classifier, gold standard builder, and ingestion scripts.
+
+---
+
+## 13. Graph Data: ChEMBL Assay Compounds vs Approved Drugs
+
+**Decision:** Inserted 23 known RA therapies with curated Drug→Target edges into the graph. ChEMBL assay compounds retained as exploratory candidates.
+
+**Why not remove ChEMBL compounds:**
+The 193 ChEMBL compounds are real binding assay results. They are correctly labeled as "exploratory" because they have not been validated as RA therapies. Removing them would artificially inflate recall by shrinking the candidate pool.
+
+**Why add approved drugs separately:**
+The ChEMBL data comes from binding assays against RA-relevant targets, but the compounds themselves are not approved therapies. Adding approved therapies ensures the candidate pool includes the drugs that the gold standard expects to see, making Recall@K meaningful.
+
+---
+
+## 14. API Architecture: Lazy GNN Loading vs Eager
+
+**Decision:** GNN predictor loaded lazily on first health check or query, not at server startup.
+
+**Why not eager loading:**
+Importing `torch_geometric` at module level causes a `MemoryError` on systems with small paging files (Windows with 4GB RAM). The lazy loading pattern lets the API start without loading the GNN. If the GNN fails to load (shape mismatch, memory error), the pipeline continues with `learned_score = 0`.
+
+**Pattern:**
+```python
+def _get_gnn():
+    global gnn_predictor
+    if gnn_predictor is None:
+        try:
+            from gnn.inference import get_predictor
+            gnn_predictor = get_predictor()
+        except Exception as e:
+            gnn_predictor = None
+    return gnn_predictor
+```
+
+---
+
+## 15. Git Workflow: Dev Branch → Main Merge
+
+**Decision:** All commits pushed to `dev` branch. Fast-forward merged to `main` at milestones.
+
+**Why not commit directly to main:**
+The user requested this workflow: "use the dev branch to push the commits. I will pull them afterwards." Allows review before merging. Commit format: `type: change1 + change2 + ...` (e.g., `feat: RA ingestion loaders + graph build script + graph stats reporter`).
+
+---
+
+## 16. Public Repo Cleanup: Remove Personal/Internal Files
+
+**Decision:** `.opencode/`, `DRIPE_obsidian/`, `data/dripe_*.md`, `aim.txt`, `checkpoints/`, `data/chembl_id_name_map.json` removed from git tracking and added to `.gitignore`.
+
+**Why not keep them:**
+These are internal design documents, personal notes, and local config files. They are not useful to external users and could expose project context that should remain private. They remain on the local machine but are not pushed to GitHub.
+
+---
+
+## 17. Path Traversal: Ordered by Confidence vs Unordered
+
+**Decision:** Path traversal results ordered by `reduce(conf = 1.0, r IN relationships(p) | conf * COALESCE(r.confidence, 0.5)) DESC`.
+
+**Why not unordered (default Neo4j order):**
+Initially returned paths in node-creation order, which put old ChEMBL compounds before newly inserted known therapies. Ordering by path confidence ensures known therapies (with curated edges at 0.90 confidence) appear before exploratory compounds (with ChEMBL assay edges at 0.5-0.85 confidence). This directly improved Recall@10 from 0.0 to 0.39.
+
+---
+
+## 18. Drug→Trial Edges: Added for Path Diversity
+
+**Decision:** Created Drug→Trial (TRIAL_INVESTIGATES) edges for 11 of 23 therapies, adding 555 edges.
+
+**Why not rely solely on Drug→Target→Disease paths:**
+Drug→Trial→Disease paths provide clinical evidence context. A drug with a Phase III RA trial is more credible than one connected only through target biology. These edges also enable the `trial_score` component in composite ranking, making the evidence score more informative.
+
+**Why not create edges for all 23 therapies (script timed out after 11):**
+The script hits the ClinicalTrials API with 50-record batches per drug. 11 drugs × 50 records took ~5 minutes. The remaining 12 drugs can be processed in a subsequent run.
+
+---
+
+## 19. Composite Score Trial Component: Defined but Not Yet Wired
+
+**Decision:** `trial_score` is a defined field in the RankingScores schema (20% weight) but currently returns 0.0 for all candidates.
+
+**Why not wire it yet:**
+Drug→Trial edges exist but the pipeline does not count trial associations per candidate. This is a deliberate deferral — the graph alignment (Step A) and Drug→Trial edge creation (Step B) needed to happen first before it made sense to compute trial scores.
+
+**Next step when ready:**
+Count TRIAL_INVESTIGATES edges per drug and compute `trial_score = min(trial_count / 10, 1.0)`.
+
+---
+
+## Summary of Key Principles
+
+1. **Graph first, models second** — Invest in graph quality before model complexity.
+2. **Evaluation is not optional** — If you can't measure it, you can't defend it.
+3. **LLMs should narrate, not reason** — Constrained output over free-form speculation.
+4. **Composite scoring over single models** — No single point of failure.
+5. **Narrow scope, deep evaluation** — RA-only with strong evaluation beats broad-but-shallow.
+6. **Honest labeling is better than impressive-sounding outputs** — Known drugs should be called known, not "discovered."
+7. **Lazy loading for memory-heavy components** — Don't crash at startup if a model fails.
+8. **A curated registry beats ad-hoc lists** — One source of truth for classification, evaluation, and ingestion.

@@ -63,3 +63,4 @@ data/*.json
 
 # Internal design documents
 data/*.md
+data/*.txt

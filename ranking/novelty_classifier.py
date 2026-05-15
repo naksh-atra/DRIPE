@@ -1,61 +1,57 @@
 """
 Novelty classifier for DRIPE v2.
-Labels candidates by their novelty status.
+Labels candidates by their novelty status using the RA therapy registry.
 """
-import json
 import logging
-from pathlib import Path
-from typing import Set
+from typing import Optional, Set
 
 from schemas.explanation import NoveltyBucket
+from config.ra_therapies import get_known_indications, get_adjacent_therapies, get_chembl_id_map
 
 logger = logging.getLogger(__name__)
 
-# Curated list of known RA therapies for novelty classification
-KNOWN_RA_THERAPIES: Set[str] = {
-    "methotrexate", "adalimumab", "etanercept", "infliximab", "rituximab",
-    "tocilizumab", "baricitinib", "tofacitinib", "abatacept", "sulfasalazine",
-    "leflunomide", "hydroxychloroquine", "certolizumab", "golimumab", "sarilumab",
-    "upadacitinib", "filgotinib", "anakinra", "prednisone", "methylprednisolone",
-    "cyclosporine", "azathioprine", "penicillamine", "mycophenolate",
-}
-
-ADJACENT_THERAPIES: Set[str] = {
-    "ustekinumab", "secukinumab", "ixekizumab", "belimumab", "apremilast",
-}
-
+_KNOWN_MAP = None
+_ADJACENT_MAP = None
 _CHEMBL_NAME_MAP = None
 
 
-def _load_name_map() -> dict:
-    global _CHEMBL_NAME_MAP
-    if _CHEMBL_NAME_MAP is None:
-        path = Path(__file__).parent.parent / "data" / "chembl_id_name_map.json"
-        if path.exists():
-            with open(path) as f:
-                _CHEMBL_NAME_MAP = json.load(f)
-        else:
-            _CHEMBL_NAME_MAP = {}
-    return _CHEMBL_NAME_MAP
+def _load():
+    global _KNOWN_MAP, _ADJACENT_MAP, _CHEMBL_NAME_MAP
+    if _KNOWN_MAP is None:
+        _KNOWN_MAP = get_known_indications()
+        _ADJACENT_MAP = get_adjacent_therapies()
+        _CHEMBL_NAME_MAP = get_chembl_id_map()
+        # Also build reverse map (chembl_id -> name)
+        _CHEMBL_NAME_MAP.update({v: k for k, v in _CHEMBL_NAME_MAP.items()})
+        # Add registry IDs to the name map
+        for name, cid in _KNOWN_MAP.items():
+            if cid:
+                _CHEMBL_NAME_MAP[cid.lower()] = name
+                _CHEMBL_NAME_MAP[cid.upper()] = name
+        for name, cid in _ADJACENT_MAP.items():
+            if cid:
+                _CHEMBL_NAME_MAP[cid.lower()] = name
+                _CHEMBL_NAME_MAP[cid.upper()] = name
 
 
 def classify_novelty(drug_name: str, drug_id: str, trial_count: int) -> NoveltyBucket:
     """Classify a candidate drug into a novelty bucket."""
-    clean_name = drug_name.lower().replace("drug:", "")
+    _load()
 
-    # Check by name
-    if clean_name in KNOWN_RA_THERAPIES:
+    clean = drug_name.lower().replace("drug:", "")
+
+    # Check by name directly
+    if clean in _KNOWN_MAP:
         return NoveltyBucket.KNOWN_INDICATION
-    if clean_name in ADJACENT_THERAPIES:
+    if clean in _ADJACENT_MAP:
         return NoveltyBucket.ADJACENT_OFFLABEL
 
-    # Check by ChEMBL ID via name map
-    name_map = _load_name_map()
-    if clean_name in name_map:
-        mapped = name_map[clean_name].lower()
-        if mapped in KNOWN_RA_THERAPIES:
+    # Check by ChEMBL ID -> name resolution
+    resolved = _CHEMBL_NAME_MAP.get(clean) or _CHEMBL_NAME_MAP.get(clean.upper())
+    if resolved:
+        if resolved in _KNOWN_MAP:
             return NoveltyBucket.KNOWN_INDICATION
-        if mapped in ADJACENT_THERAPIES:
+        if resolved in _ADJACENT_MAP:
             return NoveltyBucket.ADJACENT_OFFLABEL
 
     if trial_count > 0:

@@ -37,8 +37,8 @@ def _build_id_map() -> Dict[str, str]:
         if cid:
             _DRUG_ID_MAP[cid.lower()] = name
             _DRUG_ID_MAP[cid.upper()] = name
-        tid = f"RA_THERAPY_{name}"
-        _DRUG_ID_MAP[tid.lower()] = name
+        for prefix in ["RA_THERAPY_", "PSA_THERAPY_", "SLE_THERAPY_", "SJOGREN_THERAPY_"]:
+            _DRUG_ID_MAP[f"{prefix}{name}".lower()] = name
 
     for name in all_adjacent:
         _DRUG_ID_MAP[name.lower()] = name

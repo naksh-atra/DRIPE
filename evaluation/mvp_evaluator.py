@@ -1,6 +1,6 @@
 import logging
 from datetime import datetime
-from typing import List, Dict, Optional, Set
+from typing import List, Dict, Optional, Set, Tuple
 
 from evaluation.gold_standard_builder import build_gold_standard
 from evaluation.ranking_metrics import compute_all_metrics
@@ -9,6 +9,11 @@ from ranking.baselines.common_neighbor import score_by_common_neighbors
 from ranking.baselines.weighted_path import score_by_weighted_paths
 from config.ra_therapies import get_known_indications as get_ra_known, get_adjacent_therapies as get_ra_adj, get_chembl_id_map as get_ra_chembl
 from config.adjacent_therapies import get_known_indications, get_adjacent_therapies, get_chembl_id_map
+
+W_GRAPH = 0.40
+W_EVIDENCE = 0.25
+W_TRIAL = 0.20
+W_LEARNED = 0.15
 
 logger = logging.getLogger(__name__)
 
@@ -111,5 +116,59 @@ class MVPEvaluator:
             "baseline_common_neighbor": cn_metrics or {"status": "skipped_no_path_data"},
             "known_issues": [
                 "GNN evaluation deferred until graph > 1000 edges",
+            ],
+        }
+
+    def evaluate_composite_ranking(
+        self,
+        ranked_drugs: List[str],
+        candidate_paths: Optional[Dict[str, List[Dict]]] = None,
+        trial_counts: Optional[Dict[str, int]] = None,
+    ) -> Dict:
+        deduped = _dedup_ordered(ranked_drugs)
+        ranked_resolved = [_resolve_drug(d) for d in deduped]
+
+        raw_metrics = compute_all_metrics(ranked_resolved, self.gold_set)
+
+        trial_counts = trial_counts or {}
+
+        composite_items = []
+        for drug_id, resolved_name in zip(deduped, ranked_resolved):
+            paths = (candidate_paths or {}).get(drug_id, [])
+            graph_score = max((p.get("path_confidence", 0.5) for p in paths), default=0.5)
+            tcount = trial_counts.get(drug_id, 0)
+            tscore = min(tcount / 10.0, 1.0)
+            composite = W_GRAPH * graph_score + W_TRIAL * tscore
+            composite_items.append((resolved_name, composite, graph_score, tscore, tcount))
+
+        composite_items.sort(key=lambda x: -x[1])
+        composite_ranked = [item[0] for item in composite_items]
+        composite_metrics = compute_all_metrics(composite_ranked, self.gold_set)
+
+        deltas = {}
+        for resolved_name, _, gs, ts, tc in composite_items:
+            if resolved_name.lower() in self.gold_set:
+                raw_pos = next((i+1 for i, r in enumerate(ranked_resolved) if r == resolved_name), None)
+                comp_pos = next((i+1 for i, r in enumerate(composite_ranked) if r == resolved_name), None)
+                deltas[resolved_name] = {
+                    "raw_rank": raw_pos,
+                    "composite_rank": comp_pos,
+                    "graph_score": round(gs, 4),
+                    "trial_score": round(ts, 4),
+                    "trial_count": tc,
+                    "composite_score": round(W_GRAPH * gs + W_TRIAL * ts, 4),
+                    "delta": (comp_pos - raw_pos) if raw_pos and comp_pos else None,
+                }
+
+        return {
+            "evaluation_date": datetime.utcnow().isoformat(),
+            "disease_cui": self.disease_cui,
+            "gold_standard_size": len(self.gold_standard),
+            "graph_version": "ra-program-v1",
+            "system_raw": raw_metrics,
+            "system_composite": composite_metrics,
+            "gold_deltas": deltas,
+            "known_issues": [
+                "GNN deferred (0.0 learned_score); evidence_score omitted (no RAG in eval)",
             ],
         }

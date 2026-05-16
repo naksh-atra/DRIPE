@@ -72,7 +72,11 @@ class LLMClient:
             response.raise_for_status()
 
             data = response.json()
-            return data["choices"][0]["message"]["content"].strip()
+            content = data["choices"][0]["message"]["content"]
+            if content is None:
+                logger.warning("OpenRouter returned null content")
+                return "LLM returned empty response."
+            return content.strip()
 
         except httpx.TimeoutException:
             logger.warning(f"OpenRouter timeout ({self.timeout}s)")

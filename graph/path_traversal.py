@@ -21,8 +21,10 @@ class PathTraversal:
         # Note: depth must be literal in pattern, not parameterized
         cypher = f"""
         MATCH p = (drug:Entity {{entity_type: 'Drug'}})-[:BIOREL*1..{max_depth}]-(disease:Entity {{entity_id: $did}})
+        WHERE drug.name IS NOT NULL AND drug.name <> ''
         RETURN 
             drug.entity_id AS drug_id,
+            drug.name AS drug_name,
             [n in nodes(p) | {{id: n.entity_id, type: n.entity_type}}] AS path_nodes,
             [r in relationships(p) | {{type: r.type, confidence: r.confidence}}] AS path_edges
         ORDER BY reduce(conf = 1.0, r IN relationships(p) | conf * COALESCE(r.confidence, 0.5)) DESC
@@ -36,6 +38,7 @@ class PathTraversal:
             for res in results:
                 formatted_paths.append({
                     "drug_id": res["drug_id"],
+                    "drug_name": res.get("drug_name", ""),
                     "nodes": res["path_nodes"],
                     "edges": res["path_edges"],
                     "path_confidence": sum(e["confidence"] for e in res["path_edges"]) / len(res["path_edges"]) if res["path_edges"] else 0

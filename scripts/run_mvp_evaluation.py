@@ -8,7 +8,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from dotenv import load_dotenv
 load_dotenv()
 
-from evaluation.gold_standard_builder import build_ra_gold_standard
+from evaluation.gold_standard_builder import build_gold_standard
 from evaluation.mvp_evaluator import MVPEvaluator
 from graph.graph_builder import GraphEngine
 from graph.path_traversal import PathTraversal
@@ -18,8 +18,7 @@ logger = logging.getLogger(__name__)
 
 
 async def main():
-    # Build gold standard
-    gold = build_ra_gold_standard()
+    gold = build_gold_standard("C0003873")
     logger.info(f"Gold standard: {len(gold)} therapies")
 
     # Connect to graph and get paths

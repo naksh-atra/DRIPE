@@ -6,11 +6,12 @@ logger = logging.getLogger(__name__)
 
 CT_API_BASE = "https://clinicaltrials.gov/api/v2/studies"
 
-async def get_clinical_trials(drug_name: str) -> List[Dict]:
+async def get_clinical_trials(query_term: str, search_field: str = "intr") -> List[Dict]:
     """
-    Retrieves clinical trials for a drug.
+    Retrieves clinical trials from ClinicalTrials.gov.
+    search_field: 'intr' for intervention, 'cond' for condition, 'titles' for title search, etc.
     """
-    query = f"query.intr={drug_name}"
+    query = f"query.{search_field}={query_term}"
     url = f"{CT_API_BASE}?{query}&pageSize=50"
     
     trials = []
@@ -29,6 +30,6 @@ async def get_clinical_trials(drug_name: str) -> List[Dict]:
                         "outcome": info.get("outcomesModule", {}).get("primaryOutcomes", [])
                     })
         except Exception as e:
-            logger.error(f"Error fetching ClinicalTrials.gov data for {drug_name}: {e}")
+            logger.error(f"Error fetching ClinicalTrials.gov data for {query_term}: {e}")
             
     return trials

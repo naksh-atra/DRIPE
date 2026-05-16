@@ -1,5 +1,4 @@
 # DRIPE v2 Disease Program Configuration
-# Only RA is supported as primary disease for MVP.
 primary_disease:
   name: "rheumatoid arthritis"
   canonical_cui: "C0003873"
@@ -11,13 +10,27 @@ primary_disease:
 adjacency_diseases:
   - name: "systemic lupus erythematosus"
     canonical_cui: "C0024141"
-    graph_context_only: true
+    graph_context_only: false
+    allowed_aliases:
+      - "systemic lupus erythematosus"
+      - "SLE"
+      - "lupus"
+      - "C0024141"
   - name: "psoriatic arthritis"
     canonical_cui: "C0395076"
-    graph_context_only: true
+    graph_context_only: false
+    allowed_aliases:
+      - "psoriatic arthritis"
+      - "PsA"
+      - "C0395076"
   - name: "sjogren syndrome"
     canonical_cui: "C0036075"
-    graph_context_only: true
+    graph_context_only: false
+    allowed_aliases:
+      - "sjogren syndrome"
+      - "sjogren's syndrome"
+      - "Sjogren"
+      - "C0036075"
 
 rejected_aliases:
   - "arthritis"

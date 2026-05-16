@@ -43,6 +43,14 @@ request_logs/
 .idea/
 .DS_Store
 
+# Design documents (local-only)
+data/*.md
+data/*.txt
+data/*.json
+aim.txt
+_tmp_*.py
+__*.py
+
 # Windows system files
 nul
 

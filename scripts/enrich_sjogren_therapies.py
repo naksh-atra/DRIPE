@@ -183,7 +183,7 @@ async def seed_drug_trial_edges(engine: GraphEngine):
 
         try:
             trials = await asyncio.wait_for(
-                get_clinical_trials(query, search_field="intr"), timeout=45.0,
+                get_clinical_trials(query), timeout=45.0,
             )
         except asyncio.TimeoutError:
             logger.warning(f"    Timeout for {drug_name}")

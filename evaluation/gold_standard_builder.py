@@ -1,30 +1,63 @@
+"""
+Gold standard builder for DRIPE v2 evaluation.
+Constructs known-therapy lists from public sources.
+"""
 from typing import List, Dict
-from config.ra_therapies import get_known_indications as get_ra_known, get_adjacent_therapies as get_ra_adj
-from config.adjacent_therapies import get_known_indications, get_adjacent_therapies, get_disease_name
 
-DISEASE_MAP = {
-    "C0003873": {"name": "rheumatoid arthritis", "therapies_fn": None},
-    "C0024141": {"name": "systemic lupus erythematosus", "therapies_fn": None},
-    "C0395076": {"name": "psoriatic arthritis", "therapies_fn": None},
-    "C0036075": {"name": "sjogren syndrome", "therapies_fn": None},
+# Per-disease gold standards (therapy names in lowercase)
+DISEASE_GOLD_STANDARDS = {
+    "C0003873": {  # RA
+        "methotrexate", "adalimumab", "etanercept", "infliximab", "rituximab",
+        "tocilizumab", "baricitinib", "tofacitinib", "abatacept", "sulfasalazine",
+        "leflunomide", "hydroxychloroquine", "certolizumab", "golimumab", "sarilumab",
+        "upadacitinib", "filgotinib", "anakinra", "prednisone", "methylprednisolone",
+        "cyclosporine", "azathioprine", "penicillamine", "mycophenolate",
+    },
+    "C0024141": {  # SLE
+        "hydroxychloroquine", "belimumab", "mycophenolate mofetil",
+        "cyclophosphamide", "azathioprine", "anifrolumab", "tacrolimus",
+        "methotrexate", "rituximab", "prednisone", "methylprednisolone",
+        "leflunomide", "abatacept",
+    },
+    "C0395076": {  # PsA
+        "methotrexate", "adalimumab", "etanercept", "infliximab", "secukinumab",
+        "ixekizumab", "ustekinumab", "apremilast", "certolizumab", "golimumab",
+        "tofacitinib", "upadacitinib", "brodalumab", "risankizumab",
+        "bimekizumab", "guselkumab", "tildrakizumab", "certolizumab pegol",
+        "leflunomide", "sulfasalazine", "cyclosporine",
+    },
+    "C0036075": {  # Sjogren
+        "pilocarpine", "cevimeline",
+        "hydroxychloroquine", "rituximab", "belimumab",
+        "methotrexate", "leflunomide", "azathioprine",
+        "mycophenolate mofetil", "cyclophosphamide",
+        "prednisone", "methylprednisolone",
+        "abatacept", "anakinra",
+    },
 }
 
-def build_gold_standard(cui: str = "C0003873") -> List[Dict]:
-    if cui == "C0003873":
-        gold = []
-        for name in sorted(get_ra_known()):
-            gold.append({"drug_name": name, "disease": "rheumatoid arthritis", "disease_cui": "C0003873", "category": "known_indication"})
-        for name in sorted(get_ra_adj()):
-            gold.append({"drug_name": name, "disease": "rheumatoid arthritis", "disease_cui": "C0003873", "category": "adjacent_offlabel"})
-        return gold
-    else:
-        gold = []
-        disease_name = get_disease_name(cui)
-        for name in sorted(get_known_indications(cui)):
-            gold.append({"drug_name": name, "disease": disease_name, "disease_cui": cui, "category": "known_indication"})
-        for name in sorted(get_adjacent_therapies(cui)):
-            gold.append({"drug_name": name, "disease": disease_name, "disease_cui": cui, "category": "adjacent_offlabel"})
-        return gold
+
+def build_gold_standard(disease_cui: str) -> List[Dict]:
+    """Build gold standard for a given disease CUI."""
+    drug_names = DISEASE_GOLD_STANDARDS.get(disease_cui, set())
+    disease_name_map = {
+        "C0003873": "rheumatoid arthritis",
+        "C0024141": "systemic lupus erythematosus",
+        "C0395076": "psoriatic arthritis",
+        "C0036075": "sjogren syndrome",
+    }
+    disease = disease_name_map.get(disease_cui, "unknown")
+    gold = []
+    for drug in sorted(drug_names):
+        gold.append({
+            "drug_name": drug,
+            "disease": disease,
+            "disease_cui": disease_cui,
+            "category": "known_indication",
+        })
+    return gold
+
 
 def build_ra_gold_standard() -> List[Dict]:
+    """Build gold standard of known RA therapies (kept for backward compat)."""
     return build_gold_standard("C0003873")

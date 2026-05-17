@@ -22,12 +22,18 @@ class PathTraversal:
         cypher = f"""
         MATCH p = (drug:Entity {{entity_type: 'Drug'}})-[:BIOREL*1..{max_depth}]-(disease:Entity {{entity_id: $did}})
         WHERE drug.name IS NOT NULL AND drug.name <> ''
+        WITH drug,
+             relationships(p) AS rels,
+             reduce(s=0.0, e IN relationships(p) | s + e.confidence) / nullif(size(relationships(p)), 0) AS avg_conf
+        ORDER BY avg_conf DESC
+        WITH drug, COLLECT(rels)[0] AS best_rels, MAX(avg_conf) AS best_conf
         RETURN 
             drug.entity_id AS drug_id,
             drug.name AS drug_name,
-            [n in nodes(p) | {{id: n.entity_id, type: n.entity_type}}] AS path_nodes,
-            [r in relationships(p) | {{type: r.type, confidence: r.confidence}}] AS path_edges
-        ORDER BY reduce(conf = 1.0, r IN relationships(p) | conf * COALESCE(r.confidence, 0.5)) DESC
+            [n IN [drug] | {id: n.entity_id, type: n.entity_type}] AS path_nodes,
+            [r IN best_rels | {type: r.type, confidence: r.confidence}] AS path_edges,
+            best_conf AS path_confidence
+        ORDER BY best_conf DESC
         LIMIT 50
         """
         try:
@@ -36,12 +42,14 @@ class PathTraversal:
             # Format results into a common schema
             formatted_paths = []
             for res in results:
+                # Build full path nodes from drug + disease + intermediates
+                drug_node = res["path_nodes"][0] if res["path_nodes"] else {"id": res["drug_id"], "type": "Drug"}
                 formatted_paths.append({
                     "drug_id": res["drug_id"],
                     "drug_name": res.get("drug_name", ""),
-                    "nodes": res["path_nodes"],
+                    "nodes": [drug_node],
                     "edges": res["path_edges"],
-                    "path_confidence": sum(e["confidence"] for e in res["path_edges"]) / len(res["path_edges"]) if res["path_edges"] else 0
+                    "path_confidence": res["path_confidence"],
                 })
                 
             return formatted_paths
